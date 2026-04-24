@@ -62,7 +62,7 @@ WSGI_APPLICATION = 'rentme_api.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=config('RENDER_DATABASE_URL', default=config('DATABASE_URL')),
+        default=config('DATABASE_URL', default=config('DATABASE_URL')),
         conn_max_age=600,
     )
 }
@@ -74,15 +74,15 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-LANGUAGE_CODE = config('LANGUAGE_CODE', default='en-us')
-TIME_ZONE = config('TIME_ZONE', default='UTC')
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = config('STATIC_URL', default='static/')
+STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-MEDIA_URL = config('MEDIA_URL', default='/media/')
+MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
