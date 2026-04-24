@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: rentme-backend
+    runtime: python
+    rootDir: MeRent
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn rentme_api.wsgi:application
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: rentme_api.settings
