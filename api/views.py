@@ -6,7 +6,7 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db.models import Q
-from .models import UserProfile, Property, Equipment, Booking, Favorite, Review, SupportTicket, ChatMessage, Notification
+from .models import UserProfile, Property, Equipment, Booking, Favorite, Review, SupportTicket, ChatMessage, Notification, PasswordResetCode
 from .serializers import (UserSerializer, UserProfileSerializer, RegisterSerializer, 
                          PropertySerializer, EquipmentSerializer, BookingSerializer,
                          FavoriteSerializer, ReviewSerializer, SupportTicketSerializer, ChatMessageSerializer, NotificationSerializer)
@@ -645,3 +645,70 @@ def admin_reply(request, user_id):
     )
     serializer = ChatMessageSerializer(msg)
     return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def forgot_password(request):
+    import random
+    from django.core.mail import send_mail
+    email = request.data.get('email', '').strip()
+    if not email:
+        return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'No account found with this email.'}, status=status.HTTP_404_NOT_FOUND)
+    code = str(random.randint(100000, 999999))
+    PasswordResetCode.objects.create(user=user, code=code)
+    send_mail(
+        'RentMe Password Reset Code',
+        f'Your password reset code is: {code}\n\nThis code expires in 10 minutes.',
+        None,
+        [email],
+        fail_silently=False,
+    )
+    return Response({'message': 'Reset code sent to your email.'})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_reset_code(request):
+    email = request.data.get('email', '').strip()
+    code = request.data.get('code', '').strip()
+    if not email or not code:
+        return Response({'error': 'Email and code are required.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'No account found with this email.'}, status=status.HTTP_404_NOT_FOUND)
+    reset = PasswordResetCode.objects.filter(user=user, code=code, is_used=False).order_by('-created_at').first()
+    if not reset:
+        return Response({'error': 'Invalid code.'}, status=status.HTTP_400_BAD_REQUEST)
+    if reset.is_expired():
+        return Response({'error': 'Code has expired. Please request a new one.'}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'message': 'Code verified.'})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def reset_password(request):
+    email = request.data.get('email', '').strip()
+    code = request.data.get('code', '').strip()
+    new_password = request.data.get('new_password', '')
+    if not email or not code or not new_password:
+        return Response({'error': 'Email, code, and new password are required.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'No account found with this email.'}, status=status.HTTP_404_NOT_FOUND)
+    reset = PasswordResetCode.objects.filter(user=user, code=code, is_used=False).order_by('-created_at').first()
+    if not reset:
+        return Response({'error': 'Invalid code.'}, status=status.HTTP_400_BAD_REQUEST)
+    if reset.is_expired():
+        return Response({'error': 'Code has expired. Please request a new one.'}, status=status.HTTP_400_BAD_REQUEST)
+    user.set_password(new_password)
+    user.save()
+    reset.is_used = True
+    reset.save()
+    return Response({'message': 'Password reset successfully.'})
