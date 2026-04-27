@@ -8,7 +8,7 @@ from .views import (PropertyViewSet, EquipmentViewSet, BookingViewSet,
                    owner_booking_requests, owner_update_booking_request,
                    get_notifications, mark_notifications_read, unread_notification_count,
                    confirm_receipt, return_item, admin_confirm_return, cancel_booking, request_extension, lift_restriction, equipment_booked_dates,
-                   forgot_password, verify_reset_code, reset_password)
+                   forgot_password, verify_reset_code, reset_password, verify_email)
 
 router = DefaultRouter()
 router.register(r'properties', PropertyViewSet)
@@ -46,4 +46,5 @@ urlpatterns = [
     path('auth/forgot-password/', forgot_password, name='forgot-password'),
     path('auth/verify-reset-code/', verify_reset_code, name='verify-reset-code'),
     path('auth/reset-password/', reset_password, name='reset-password'),
+    path('auth/verify-email/', verify_email, name='verify-email'),
 ]

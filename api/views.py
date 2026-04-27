@@ -6,7 +6,7 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db.models import Q
-from .models import UserProfile, Property, Equipment, Booking, Favorite, Review, SupportTicket, ChatMessage, Notification, PasswordResetCode
+from .models import UserProfile, Property, Equipment, Booking, Favorite, Review, SupportTicket, ChatMessage, Notification, PasswordResetCode, EmailVerificationCode
 from .serializers import (UserSerializer, UserProfileSerializer, RegisterSerializer, 
                          PropertySerializer, EquipmentSerializer, BookingSerializer,
                          FavoriteSerializer, ReviewSerializer, SupportTicketSerializer, ChatMessageSerializer, NotificationSerializer)
@@ -22,12 +22,48 @@ class IsAdminOrOwnerOrReadOnly(BasePermission):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
+    import random
+    from django.core.mail import send_mail
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
-        token, _ = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key, 'user': UserSerializer(user).data}, status=status.HTTP_201_CREATED)
+        user.is_active = False
+        user.save()
+        code = str(random.randint(100000, 999999))
+        EmailVerificationCode.objects.create(user=user, code=code)
+        send_mail(
+            'RentMe - Verify Your Email',
+            f'Your verification code is: {code}\n\nThis code expires in 10 minutes.',
+            None,
+            [user.email],
+            fail_silently=False,
+        )
+        return Response({'message': 'Verification code sent to your email.', 'email': user.email}, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_email(request):
+    email = request.data.get('email', '').strip()
+    code = request.data.get('code', '').strip()
+    if not email or not code:
+        return Response({'error': 'Email and code are required.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'No account found with this email.'}, status=status.HTTP_404_NOT_FOUND)
+    verification = EmailVerificationCode.objects.filter(user=user, code=code, is_used=False).order_by('-created_at').first()
+    if not verification:
+        return Response({'error': 'Invalid code.'}, status=status.HTTP_400_BAD_REQUEST)
+    if verification.is_expired():
+        return Response({'error': 'Code has expired. Please register again.'}, status=status.HTTP_400_BAD_REQUEST)
+    user.is_active = True
+    user.save()
+    verification.is_used = True
+    verification.save()
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response({'token': token.key, 'user': UserSerializer(user).data})
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -40,6 +76,13 @@ def login(request):
         user_data = UserSerializer(user).data
         user_data['is_staff'] = user.is_staff
         return Response({'token': token.key, 'user': user_data})
+    # Check if account exists but is not verified yet
+    try:
+        unverified = User.objects.get(username=username, is_active=False)
+        unverified.set_password(unverified.password)  # no-op, just to check
+        return Response({'error': 'Please verify your email before logging in.'}, status=status.HTTP_401_UNAUTHORIZED)
+    except User.DoesNotExist:
+        pass
     return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
 
 @api_view(['POST'])
