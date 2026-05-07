@@ -11,6 +11,7 @@ from .models import UserProfile, Property, Equipment, Booking, Favorite, Review,
 from .serializers import (UserSerializer, UserProfileSerializer, RegisterSerializer, 
                          PropertySerializer, EquipmentSerializer, BookingSerializer,
                          FavoriteSerializer, ReviewSerializer, SupportTicketSerializer, ChatMessageSerializer, NotificationSerializer)
+from .email_utils import send_transactional_email
 
 class IsAdminOrOwnerOrReadOnly(BasePermission):
     def has_object_permission(self, request, view, obj):
@@ -24,7 +25,6 @@ class IsAdminOrOwnerOrReadOnly(BasePermission):
 @permission_classes([AllowAny])
 def register(request):
     import random
-    from django.core.mail import send_mail
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
         try:
@@ -34,12 +34,10 @@ def register(request):
                 user.save()
                 code = str(random.randint(100000, 999999))
                 EmailVerificationCode.objects.create(user=user, code=code)
-                send_mail(
+                send_transactional_email(
                     'RentMe - Verify Your Email',
                     f'Your verification code is: {code}\n\nThis code expires in 10 minutes.',
-                    None,
-                    [user.email],
-                    fail_silently=False,
+                    user.email,
                 )
         except Exception as e:
             return Response({'error': f'Failed to register account: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -715,7 +713,6 @@ def admin_reply(request, user_id):
 @permission_classes([AllowAny])
 def forgot_password(request):
     import random
-    from django.core.mail import send_mail
     email = request.data.get('email', '').strip()
     if not email:
         return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -725,13 +722,14 @@ def forgot_password(request):
         return Response({'error': 'No account found with this email.'}, status=status.HTTP_404_NOT_FOUND)
     code = str(random.randint(100000, 999999))
     PasswordResetCode.objects.create(user=user, code=code)
-    send_mail(
-        'RentMe Password Reset Code',
-        f'Your password reset code is: {code}\n\nThis code expires in 10 minutes.',
-        None,
-        [email],
-        fail_silently=False,
-    )
+    try:
+        send_transactional_email(
+            'RentMe Password Reset Code',
+            f'Your password reset code is: {code}\n\nThis code expires in 10 minutes.',
+            email,
+        )
+    except Exception as e:
+        return Response({'error': f'Failed to send reset email: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response({'message': 'Reset code sent to your email.'})
 
 
