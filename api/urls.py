@@ -15,7 +15,7 @@ router.register(r'properties', PropertyViewSet)
 router.register(r'equipment', EquipmentViewSet)
 router.register(r'bookings', BookingViewSet, basename='booking')
 router.register(r'favorites', FavoriteViewSet, basename='favorite')
-router.register(r'reviews', ReviewViewSet)
+router.register(r'reviews', ReviewViewSet, basename='review')
 router.register(r'support-tickets', SupportTicketViewSet, basename='support-ticket')
 router.register(r'chat-messages', ChatMessageViewSet, basename='chat-message')
 

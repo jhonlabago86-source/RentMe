@@ -44,10 +44,14 @@ class PropertySerializer(serializers.ModelSerializer):
 class EquipmentSerializer(serializers.ModelSerializer):
     image = serializers.ImageField(required=False, allow_null=True, use_url=True)
     owner_details = UserSerializer(source='owner', read_only=True)
+    reviews_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Equipment
         fields = '__all__'
+    
+    def get_reviews_count(self, obj):
+        return Review.objects.filter(equipment=obj).count()
 
 class BookingSerializer(serializers.ModelSerializer):
     property_details = PropertySerializer(source='property', read_only=True)
@@ -70,10 +74,11 @@ class FavoriteSerializer(serializers.ModelSerializer):
 
 class ReviewSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
-    
+
     class Meta:
         model = Review
         fields = '__all__'
+        read_only_fields = ['user']
 
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:

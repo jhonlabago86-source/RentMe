@@ -6,6 +6,7 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db.models import Q
+from django.db import transaction
 from .models import UserProfile, Property, Equipment, Booking, Favorite, Review, SupportTicket, ChatMessage, Notification, PasswordResetCode, EmailVerificationCode
 from .serializers import (UserSerializer, UserProfileSerializer, RegisterSerializer, 
                          PropertySerializer, EquipmentSerializer, BookingSerializer,
@@ -26,18 +27,22 @@ def register(request):
     from django.core.mail import send_mail
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
-        user = serializer.save()
-        user.is_active = False
-        user.save()
-        code = str(random.randint(100000, 999999))
-        EmailVerificationCode.objects.create(user=user, code=code)
-        send_mail(
-            'RentMe - Verify Your Email',
-            f'Your verification code is: {code}\n\nThis code expires in 10 minutes.',
-            None,
-            [user.email],
-            fail_silently=False,
-        )
+        try:
+            with transaction.atomic():
+                user = serializer.save()
+                user.is_active = False
+                user.save()
+                code = str(random.randint(100000, 999999))
+                EmailVerificationCode.objects.create(user=user, code=code)
+                send_mail(
+                    'RentMe - Verify Your Email',
+                    f'Your verification code is: {code}\n\nThis code expires in 10 minutes.',
+                    None,
+                    [user.email],
+                    fail_silently=False,
+                )
+        except Exception as e:
+            return Response({'error': f'Failed to register account: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({'message': 'Verification code sent to your email.', 'email': user.email}, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -76,11 +81,10 @@ def login(request):
         user_data = UserSerializer(user).data
         user_data['is_staff'] = user.is_staff
         return Response({'token': token.key, 'user': user_data})
-    # Check if account exists but is not verified yet
     try:
         unverified = User.objects.get(username=username, is_active=False)
-        unverified.set_password(unverified.password)  # no-op, just to check
-        return Response({'error': 'Please verify your email before logging in.'}, status=status.HTTP_401_UNAUTHORIZED)
+        if unverified:
+            return Response({'error': 'Please verify your email before logging in.'}, status=status.HTTP_401_UNAUTHORIZED)
     except User.DoesNotExist:
         pass
     return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -201,9 +205,20 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 class ReviewViewSet(viewsets.ModelViewSet):
-    queryset = Review.objects.all()
     serializer_class = ReviewSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        queryset = Review.objects.all()
+        equipment_id = self.request.query_params.get('equipment')
+        if equipment_id:
+            queryset = queryset.filter(equipment_id=equipment_id)
+        return queryset
 
     def perform_create(self, serializer):
         equipment_id = self.request.data.get('equipment')
@@ -212,7 +227,13 @@ class ReviewViewSet(viewsets.ModelViewSet):
             if already:
                 from rest_framework.exceptions import ValidationError
                 raise ValidationError({'detail': 'You have already reviewed this equipment.'})
-        serializer.save(user=self.request.user)
+        review = serializer.save(user=self.request.user)
+        # Update equipment average rating
+        if review.equipment:
+            from django.db.models import Avg
+            avg = Review.objects.filter(equipment=review.equipment).aggregate(Avg('rating'))['rating__avg']
+            review.equipment.rating = round(avg, 2)
+            review.equipment.save()
 
 class SupportTicketViewSet(viewsets.ModelViewSet):
     serializer_class = SupportTicketSerializer
